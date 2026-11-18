@@ -7,8 +7,9 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color('#17100e');
 scene.fog = new THREE.Fog('#17100e', 42, 90);
 const camera = new THREE.PerspectiveCamera(37, innerWidth / innerHeight, 0.1, 180);
-camera.position.set(0, 31, 39);
-camera.lookAt(0, 1.0, 0);
+camera.position.set(0, 25, 34);
+camera.fov = 34;
+camera.lookAt(0, 0.8, 0);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.8));
 renderer.setSize(innerWidth, innerHeight);
@@ -34,7 +35,7 @@ const root = new THREE.Group(); scene.add(root);
 const roomGroups = {};
 const roomInfo = {
   bed: { file: 'Habitacion.glb', title: 'PISO 3 · HABITACIÓN', objective: 'Busca la llave dorada debajo de la cama', center: [-8, -7], spawn: [-1.6, 0, 2.3], key: [-2.6, 0.22, 1.7], target: 'cama' },
-  kitchen: { file: 'Cocina.glb', title: 'PISO 2 · COCINA', objective: 'Pídele ayuda al conejo para alcanzar la llave azul', center: [8, -7], spawn: [-2.1, 0, 2.0], key: [4.0, 3.7, -2.1], target: 'refrigerador' },
+  kitchen: { file: 'Cocina.glb', title: 'PISO 2 · COCINA', objective: 'Pídele ayuda al conejo para alcanzar la llave azul de la repisa junto a la ventana', center: [8, -7], spawn: [-1.65, 0, 1.35], key: [-0.65, 2.05, -4.15], target: 'repisa' },
   living: { file: 'Sala.glb', title: 'PISO 1 · SALA', objective: 'Busca la llave verde dentro de la taza', center: [0, 7], spawn: [-3.1, 0, 2.5], key: [3.5, 0.8, 1.3], target: 'taza' }
 };
 const roomSizes = {};
@@ -87,6 +88,8 @@ function normalizeRoom(gltfScene, id) {
   });
   const { center } = roomInfo[id];
   const group = new THREE.Group(); group.position.set(center[0], 0, center[1]);
+  // La sala se gira para que su abertura y su interior miren hacia la cámara.
+  if (id === 'living') group.rotation.y = Math.PI;
   group.add(model); root.add(group);
   roomGroups[id] = group;
   roomSizes[id] = { width: scaledSize.x, depth: scaledSize.z, height: scaledSize.y };
@@ -136,7 +139,11 @@ let elapsed = 0, toastTimer = null;
 const collected = { gold: false, blue: false, green: false };
 const keyPositions = {};
 const keyToRoom = { gold: 'bed', blue: 'kitchen', green: 'living' };
-function worldPoint(id, local) { const c = roomInfo[id].center; return new THREE.Vector3(c[0] + local[0], local[1], c[1] + local[2]); }
+function worldPoint(id, local) {
+  const group = roomGroups[id];
+  if (!group) { const c = roomInfo[id].center; return new THREE.Vector3(c[0] + local[0], local[1], c[1] + local[2]); }
+  return group.localToWorld(new THREE.Vector3(local[0], local[1], local[2]));
+}
 for (const [key, id] of Object.entries(keyToRoom)) keyPositions[key] = worldPoint(id, roomInfo[id].key);
 
 function roomBounds(id) {
@@ -169,9 +176,12 @@ function updateObjective() {
 function setRoom(id) {
   active = id;
   const c = roomInfo[id].center, s = roomInfo[id].spawn;
-  player.position.set(c[0] + s[0], 0, c[1] + s[2]);
-  buddy.position.set(player.position.x - .9, 0, player.position.z + .7);
-  if (actors.bear) bear.position.set(c[0] + 4.7, 0, c[1] - 3.3);
+  player.position.copy(worldPoint(id, [s[0], 0, s[2]]));
+  // En cocina el conejo aparece claramente junto a la vaca, sin quedar oculto tras la mesa.
+  const buddyOffset = id === 'kitchen' ? [1.15, 0, .25] : [-.9, 0, .7];
+  const buddyLocal = worldPoint(id, [s[0] + buddyOffset[0], 0, s[2] + buddyOffset[2]]);
+  buddy.position.set(buddyLocal.x, 0, buddyLocal.z);
+  if (actors.bear) { const bp = worldPoint(id, [4.7, 0, -3.3]); bear.position.set(bp.x, 0, bp.z); }
   $('#room-name').textContent = roomInfo[id].title;
   document.querySelectorAll('.floor-btn').forEach(b => b.classList.toggle('active', b.dataset.room === id));
   updateObjective();
@@ -186,7 +196,7 @@ function distance(a,b) { return Math.hypot(a.x-b.x, a.z-b.z); }
 function collectKey(key) {
   if (collected[key]) return;
   collected[key] = true; keys3D[key].visible = false; updateKeyUI(); updateObjective();
-  const messages = { gold: '¡Encontraste la llave dorada debajo de la cama!', blue: '¡El conejo movió la silla! Alcanzaste la llave azul del refrigerador.', green: '¡Encontraste la llave verde dentro de la taza!' };
+  const messages = { gold: '¡Encontraste la llave dorada debajo de la cama!', blue: '¡Encontraste la llave azul flotando sobre la repisa junto a la ventana!', green: '¡Encontraste la llave verde dentro de la taza!' };
   showToast(messages[key]);
   if (key === 'blue') buddy.position.set(player.position.x + .5, 0, player.position.z + .5);
 }
@@ -218,17 +228,21 @@ async function loadAll() {
     const gltf = await loader.loadAsync(`models/${info.file}`);
     normalizeRoom(gltf.scene, id);
   }
+  // Recalcular posiciones cuando los tres grupos ya existen, incluyendo la rotación de la sala.
+  for (const [key, id] of Object.entries(keyToRoom)) keyPositions[key] = worldPoint(id, roomInfo[id].key);
   const [cow, bunny, bearModel] = await Promise.all([
     loader.loadAsync('models/Vaca_Protagonista.glb'),
     loader.loadAsync('models/Conejo_Complice.glb'),
     loader.loadAsync('models/Oso.glb')
   ]);
   actors.cow = normalizeActor(cow.scene, 1.45);
-  actors.bunny = normalizeActor(bunny.scene, 1.2);
+  actors.bunny = normalizeActor(bunny.scene, 1.48);
   actors.bear = normalizeActor(bearModel.scene, 1.65);
   player.add(actors.cow); buddy.add(actors.bunny); bear.add(actors.bear);
   // Put the key props in the corresponding rooms, without altering the supplied room models.
-  for (const [k, p] of Object.entries(keyPositions)) { keys3D[k].position.copy(p); keys3D[k].position.y += .45; }
+  for (const [k, p] of Object.entries(keyPositions)) { keys3D[k].position.copy(p); keys3D[k].position.y += (k === 'blue' ? 0 : .45); }
+  keys3D.blue.scale.setScalar(1.25);
+  keys3D.blue.rotation.z = -.18;
   setRoom('bed');
   $('#loading').classList.add('hidden'); $('#play').disabled = false; $('#play').textContent = 'COMENZAR';
 }
@@ -284,7 +298,7 @@ function animate() {
       }
       if (d < 1.2) { caught = true; started = false; $('#caught').classList.remove('hidden'); }
     }
-    for (const [key, obj] of Object.entries(keys3D)) if (obj.visible) obj.rotation.y += dt * 1.5;
+    for (const [key, obj] of Object.entries(keys3D)) if (obj.visible) { obj.rotation.y += dt * 1.5; if (key === 'blue') obj.position.y = keyPositions.blue.y + Math.sin(clock.elapsedTime * 2.2) * .13; }
     updateObjective();
   }
   renderer.render(scene, camera);
