@@ -5,21 +5,18 @@
 <title>El Escape de los Peluches</title><link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div id="game"></div>
-<header id="hud" class="hidden">
- <div class="brand">EL ESCAPE <span>DE LOS PELUCHES</span></div>
- <div class="floor-tag" id="floorTag">PISO 3 · HABITACIÓN</div>
- <div class="inventory"><b>OBJETOS ENCONTRADOS</b><div class="key" id="key0"><i class="gold"></i> Llave dorada <small>PENDIENTE</small></div><div class="key" id="key1"><i class="blue"></i> Llave azul <small>PENDIENTE</small></div><div class="key" id="key2"><i class="green"></i> Llave verde <small>PENDIENTE</small></div></div>
- <div id="danger" class="danger hidden">⚠ EL OSO TE HA VISTO</div>
- <div class="objective"><b id="objective">OBJETIVO</b><span id="hint">Explora la habitación.</span><small>FLECHAS: MOVER · E: INTERACTUAR · ESC: PAUSA</small></div>
- <div id="toast"></div>
-</header>
-<section class="screen" id="menu"><div class="menu-card"><img src="textures/logo.png" alt="Logo" class="logo"><p class="eyebrow">UNA CASA · TRES PISOS · UNA SALIDA</p><h1>EL ESCAPE DE<br><em>LOS PELUCHES</em></h1><p>La casa está en silencio. Demasiado silencio. Encuentra las tres llaves y escapa antes de que el oso te encuentre.</p><button id="play">ENTRAR A LA CASA</button><button class="ghost" id="instructionsBtn">CÓMO JUGAR</button><div class="credits">UNA AVENTURA DE TERROR · PRODUCCIÓN MULTIMEDIA</div></div></section>
-<section class="screen hidden" id="instructions"><div class="modal"><h2>ANTES DE ENTRAR</h2><p>Explora cada habitación, resuelve las pequeñas acciones y recoge las llaves. El conejo te ayudará en la cocina. El oso patrulla la casa y puede perseguirte.</p><div class="controls"><span>↑</span> Avanzar <span>↓</span> Retroceder <span>←</span> Izquierda <span>→</span> Derecha <kbd>E</kbd> Interactuar <kbd>ESC</kbd> Pausar</div><p class="muted">Recorrido: habitación (piso 3) → cocina (piso 2) → sala (piso 1) → puerta principal.</p><button id="backMenu">VOLVER</button></div></section>
-<section class="screen hidden" id="pause"><div class="modal"><p class="eyebrow">LA CASA SIGUE ESPERANDO</p><h2>PAUSA</h2><button id="resume">CONTINUAR</button><button class="ghost" id="restart">REINICIAR PARTIDA</button><button class="ghost" id="toMenu">MENÚ PRINCIPAL</button></div></section>
-<section class="screen hidden" id="gameover"><div class="modal"><p class="eyebrow">NO DEBISTE HACER RUIDO</p><h2>EL OSO TE ENCONTRÓ</h2><p>La casa no ha terminado contigo.</p><button id="retry">VOLVER A INTENTAR</button><button class="ghost" id="overMenu">MENÚ PRINCIPAL</button></div></section>
-<section class="screen hidden" id="victory"><div class="modal"><p class="eyebrow">LA PUERTA SE ABRE</p><h2>¡LO LOGRARON!</h2><p>La vaca y el conejo escaparon. Por ahora, están a salvo.</p><button id="again">JUGAR DE NUEVO</button></div></section>
-<div id="interactionPrompt" class="hidden">PRESIONA <kbd>E</kbd> PARA INTERACTUAR</div>
+<div id="stage"></div>
+<aside class="brand"><div class="brand-title">EL ESCAPE DE<br>LOS PELUCHES</div><div class="cow-mark">🐮</div></aside>
+<aside class="floor-panel"><h2>PISOS</h2><button class="floor-btn active" data-room="bed"><span>▱</span><b>PISO 3<small>Habitación</small></b></button><button class="floor-btn" data-room="kitchen"><span>♨</span><b>PISO 2<small>Cocina</small></b></button><button class="floor-btn" data-room="living"><span>▰</span><b>PISO 1<small>Sala</small></b></button></aside>
+<div class="top-right"><span id="room-name">PISO 3 · HABITACIÓN</span><span id="threat">⚠ EL OSO ESTÁ CERCA</span></div>
+<div class="keys-panel"><h3>LLAVES</h3><div data-key="gold"><i>◆</i><span>Dorada</span><small>PENDIENTE</small></div><div data-key="blue"><i>◆</i><span>Azul</span><small>PENDIENTE</small></div><div data-key="green"><i>◆</i><span>Verde</span><small>PENDIENTE</small></div></div>
+<div class="bottom-hint"><b id="objective">Busca la llave dorada debajo de la cama</b><span>Flechas / WASD: moverte　·　E: interactuar　·　ESC: pausa</span></div>
+<div id="toast"></div>
+<section class="overlay" id="start"><div class="dialog"><p class="eyebrow">UNA CASA · TRES HABITACIONES · TRES LLAVES</p><h1>EL ESCAPE DE<br>LOS PELUCHES</h1><p>Ayuda a la vaca y a su compañero conejo a encontrar la salida antes de que el oso los atrape.</p><button id="play">COMENZAR</button><button class="secondary" id="show-instructions">CÓMO JUGAR</button></div></section>
+<section class="overlay hidden" id="instructions"><div class="dialog"><h2>¿CÓMO JUGAR?</h2><p>Explora los tres escenarios. Encuentra la llave dorada bajo la cama, consigue la azul en la cocina con ayuda del conejo y busca la verde dentro de la taza en la sala. El oso patrulla la casa y comenzará a perseguirte.</p><p><b>Flechas / WASD</b> para moverte · <b>E</b> para interactuar · <b>1, 2, 3</b> para cambiar de piso cuando esté habilitado · <b>ESC</b> para pausar.</p><button id="instructions-back">VOLVER</button></div></section>
+<section class="overlay hidden" id="pause"><div class="dialog"><h2>PAUSA</h2><button id="resume">CONTINUAR</button><button class="secondary" id="restart">REINICIAR</button></div></section>
+<section class="overlay hidden" id="caught"><div class="dialog"><h2>¡EL OSO TE ATRAPÓ!</h2><p>La vaca regresó al último punto seguro. Conservas las llaves que encontraste.</p><button id="retry">INTENTAR DE NUEVO</button></div></section>
+<section class="overlay hidden" id="ending"><div class="dialog"><h2>¡CASI LO LOGRAN!</h2><p>La llave azul abre la puerta. La vaca y el conejo salen de la casa mientras el oso observa desde el interior…</p><button id="again">JUGAR DE NUEVO</button></div></section>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 <script type="module" src="script.js"></script>
 </body></html>

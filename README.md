@@ -1,41 +1,26 @@
-# El Escape de los Peluches — edición 3D
+# El Escape de los Peluches
 
-Videojuego web en Three.js con cámara de perspectiva oblicua (no cenital), exploración por habitaciones, personajes GLB, llaves, interacción con el conejo, persecución del oso y pantallas de menú/pausa/derrota/victoria.
+Juego web 3D hecho con HTML, CSS, JavaScript y Three.js. La vista general presenta los tres escenarios grandes en la misma distribución de la referencia: habitación arriba a la izquierda, cocina arriba a la derecha y sala abajo. Los personajes tienen una escala media para que se distingan sin reducir el tamaño de los escenarios.
 
-## Estructura
+## Ejecutar
+1. Abre esta carpeta en Visual Studio Code.
+2. Ejecuta `index.html` con Live Server; o abre una terminal en esta carpeta y ejecuta `python -m http.server 8000`.
+3. Entra a `http://localhost:8000`.
 
-- `index.html`
-- `script.js`
-- `styles.css`
-- `models/` — los seis modelos GLB originales
-- `textures/logo.png`
-- `sounds/` — carpeta reservada para archivos de audio. Si se agregan pistas propias, deben conectarse en `script.js`. Actualmente hay ambiente y efectos sintetizados por Web Audio para que el juego no dependa de archivos externos.
-
-## Ejecutar localmente
-
-No abras `index.html` con doble clic porque el navegador puede bloquear la carga de modelos. Abre la carpeta con VS Code y usa **Live Server**, o ejecuta desde la carpeta del proyecto:
-
-```bash
-python -m http.server 8000
-```
-
-Después visita `http://localhost:8000`.
-
-## Publicar en GitHub Pages
-
-1. Sube el contenido completo de esta carpeta a la raíz del repositorio (incluyendo `models/`, `textures/` y `sounds/`).
-2. En GitHub abre **Settings → Pages**.
-3. En **Build and deployment**, selecciona **Deploy from a branch**, branch `main`, folder `/ (root)` y guarda.
-4. Espera el despliegue y abre la URL que muestra GitHub Pages.
-
-Las rutas de recursos son relativas, por lo que funcionan en un repositorio de GitHub Pages.
+Se requiere conexión a internet para cargar Three.js desde jsDelivr.
 
 ## Controles
+- Flechas o WASD: mover a la vaca.
+- E: interactuar con objetos.
+- ESC: pausa.
+- Botones de pisos o teclas 1, 2 y 3: cambiar de escenario cuando se haya desbloqueado el acceso.
 
-- Flechas: caminar
-- E: interactuar
-- ESC: pausa
+## Progreso del juego
+- Habitación: llave dorada debajo de la cama.
+- Cocina: el conejo ayuda a alcanzar la llave azul del refrigerador.
+- Sala: llave verde dentro de la taza.
+- Final: en la puerta de la sala se prueban las llaves dorada, verde y azul, en ese orden. La azul abre la salida.
+- El oso comienza a perseguir después de unos segundos.
 
-## Nota de desarrollo
-
-Los escenarios conservan los GLB originales como parte de la escena y añaden una estructura arquitectónica 3D de habitación para que el recorrido, las paredes, el mobiliario y las interacciones sean legibles desde la cámara oblicua. La colisión es por volúmenes rectangulares aproximados, no física de precisión. El sonido ambiental y los efectos se sintetizan en el navegador para evitar dependencias de audio ausentes.
+## Modelos
+Los personajes se cargan desde `models/`. Las habitaciones se construyen como escenarios 3D amplios dentro del HTML/JavaScript para conservar la distribución y lectura visual de la referencia. Algunos archivos GLB de escenario recibidos en la última carga están duplicados entre sí o contienen un objeto aislado en lugar de la habitación completa, por lo que no se usan como sustitutos de los escenarios.

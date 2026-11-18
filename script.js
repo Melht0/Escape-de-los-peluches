@@ -1,106 +1,85 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const $=s=>document.querySelector(s), game=$('#game');
-const scene=new THREE.Scene(); scene.background=new THREE.Color(0x171116); scene.fog=new THREE.Fog(0x171116,22,48);
-const SHOW_CHAINS=true; // pon false si no quieres las cadenas de la referencia
-const camera=new THREE.PerspectiveCamera(30,innerWidth/innerHeight,.1,120);
-function fitCamera(){const a=innerWidth/innerHeight,t=Math.tan(THREE.MathUtils.degToRad(camera.fov/2));const dist=Math.max(7.9/2/t,14.8/2/(t*a));camera.aspect=a;camera.position.set(0,7.2,5+dist);camera.lookAt(0,2.3,0);camera.updateProjectionMatrix();}
-fitCamera();
-const renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,1.7)); renderer.setSize(innerWidth,innerHeight); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap; renderer.outputColorSpace=THREE.SRGBColorSpace; game.appendChild(renderer.domElement);
-scene.add(new THREE.HemisphereLight(0xbcaeb8,0x30201d,1.45));
-const keyLight=new THREE.DirectionalLight(0xffd6a1,2.2); keyLight.position.set(-7,13,8); keyLight.castShadow=true; keyLight.shadow.mapSize.set(1536,1536); keyLight.shadow.camera.left=-12;keyLight.shadow.camera.right=12;keyLight.shadow.camera.top=12;keyLight.shadow.camera.bottom=-12;scene.add(keyLight);
-const warm=new THREE.PointLight(0xe18b58,26,20); warm.position.set(-4,5,4); scene.add(warm);
-{const bc=document.createElement('canvas');bc.width=bc.height=512;const g2=bc.getContext('2d');g2.fillStyle='#1a1213';g2.fillRect(0,0,512,512);for(let r=0;r<16;r++)for(let c=-1;c<8;c++){const l=20+Math.random()*10;g2.fillStyle=`hsl(14,26%,${l}%)`;g2.fillRect(c*64+(r%2?32:0)+2,r*32+2,60,28);}
-const tex=new THREE.CanvasTexture(bc);tex.wrapS=tex.wrapT=THREE.RepeatWrapping;tex.repeat.set(10,6);tex.colorSpace=THREE.SRGBColorSpace;
-const backdrop=new THREE.Mesh(new THREE.PlaneGeometry(60,34),new THREE.MeshStandardMaterial({map:tex,color:0x8a7774,roughness:1}));backdrop.position.set(0,2.4,-5.3);scene.add(backdrop);}
-const loader=new GLTFLoader();
-const paths={cow:'models/Vaca_Protagonista.glb',bunny:'models/Conejo_Complice.glb',bear:'models/Oso.glb',bedroom:'models/Habitacion.glb',kitchen:'models/Cocina.glb',living:'models/Sala.glb'};
-const levelNames=['PISO 3 · HABITACIÓN','PISO 2 · COCINA','PISO 1 · SALA'];
-const root=new THREE.Group();scene.add(root); const cow=new THREE.Group(),bunny=new THREE.Group(),bear=new THREE.Group();scene.add(cow,bunny,bear);
-let models={},stage=0,active=false,paused=false,dead=false,won=false,levelGroup=null,colliders=[],targets=[],nearest=null,clock=new THREE.Clock(),elapsed=0,toastTimer=0,footTimer=0,warningTimer=0;
-let inventory=[false,false,false],bedInspected=false,chairPlaced=false,cupOpened=false,finalStep=0,doorOpen=false;
-const held={}; const playerSpeed=3.15; let bearAlert=false;
-function say(msg,ms=2300){$('#toast').textContent=msg;$('#toast').classList.add('show');toastTimer=ms;}
-let audio=null,master=null,ambient=null;
-function initAudio(){if(audio)return;audio=new (window.AudioContext||window.webkitAudioContext)();master=audio.createGain();master.gain.value=.14;master.connect(audio.destination);}
-function tone(type){try{initAudio();audio.resume();const data={step:[95,.07,'triangle'],pickup:[720,.23,'sine'],tap:[260,.12,'triangle'],danger:[105,.38,'sawtooth'],unlock:[420,.7,'sawtooth'],success:[880,.65,'sine'],fail:[145,.25,'triangle']};let [hz,dur,wave]=data[type]||data.tap;let o=audio.createOscillator(),g=audio.createGain();o.type=wave;o.frequency.setValueAtTime(hz,audio.currentTime);if(type==='pickup'||type==='success')o.frequency.exponentialRampToValueAtTime(hz*1.7,audio.currentTime+dur);g.gain.setValueAtTime(.0001,audio.currentTime);g.gain.exponentialRampToValueAtTime(.22,audio.currentTime+.025);g.gain.exponentialRampToValueAtTime(.0001,audio.currentTime+dur);o.connect(g);g.connect(master);o.start();o.stop(audio.currentTime+dur+.03);}catch(e){}}
-function startAmbience(){if(ambient)return;initAudio();let o=audio.createOscillator(),g=audio.createGain(),filter=audio.createBiquadFilter();o.type='sawtooth';o.frequency.value=43;filter.type='lowpass';filter.frequency.value=100;g.gain.value=.018;o.connect(filter);filter.connect(g);g.connect(master);o.start();ambient=o;}
-function mat(color,rough=.78,metal=0){return new THREE.MeshStandardMaterial({color,roughness:rough,metalness:metal});}
-function cube(parent,name,w,h,d,color,x,y,z,opts={}){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat(color,opts.rough??.8,opts.metal??0));m.name=name;m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;parent.add(m);if(opts.solid!==false)colliders.push({x:x-w/2,z:z-d/2,w,d});return m;}
-function addChain(group,x1,y1,x2,y2,z){const dx=x2-x1,dy=y2-y1,L=Math.hypot(dx,dy),n=Math.round(L/.19),ang=Math.atan2(dy,dx);const geo=new THREE.BoxGeometry(.22,.075,.05),m=mat(0x34312f,.4,.8);for(let i=0;i<=n;i++){const l=new THREE.Mesh(geo,m);l.rotation.order='ZXY';l.rotation.z=ang;l.rotation.x=(i%2)*Math.PI/2;l.position.set(x1+dx*i/n,y1+dy*i/n,z);group.add(l);}}
-function addFrame(group){const o=0xc9782f,f=(n,w,h,d,x,y,z)=>cube(group,n,w,h,d,o,x,y,z,{solid:false,rough:.55});
- f('frame top',14.2,.5,.6,0,5.15,5.05);f('frame bottom',14.2,.5,.6,0,-.2,5.05);f('frame left',.5,5.85,.6,-6.85,2.47,5.05);f('frame right',.5,5.85,.6,6.85,2.47,5.05);
- if(SHOW_CHAINS){addChain(group,-6.85,-.2,6.85,5.15,5.4);addChain(group,-6.85,5.15,6.85,-.2,5.4);const j=new THREE.Mesh(new THREE.SphereGeometry(.22,16,12),mat(0xd9a441,.3,.8));j.position.set(0,2.47,5.45);group.add(j);}}
-function addRoomShell(group,kind){
- const wood=kind===0?0x493027:kind===1?0x514033:0x44302b,wall=kind===0?0x382a2c:kind===1?0x4b3b32:0x33282b;
- // floor and enclosing walls create a readable room rather than a flat overhead model
- const floor=new THREE.Mesh(new THREE.BoxGeometry(13,.32,10),mat(kind===1?0x65503b:0x49352d));floor.position.set(0,-.18,0);floor.receiveShadow=true;group.add(floor);
- cube(group,'back wall',13,5,.35,wall,0,2.35,-4.85,{solid:false});
- cube(group,'left wall',.35,5,9.7,wood,-6.35,2.35,0,{solid:false});
- // right wall is deliberately partial so the player can read the room
- cube(group,'right wall',.35,5,9.7,wood,6.35,2.35,0,{solid:false});
- // skirting, ceiling beams and framed wall panels
- for(let x=-5.7;x<=5.7;x+=2.85){cube(group,'wall panel',.055,3.7,.06,0x76513c,x,2.35,-4.62,{solid:false});}
- for(let x=-5.9;x<=5.9;x+=2.95)cube(group,'ceiling beam',.18,.22,9.3,0x261d1c,x,4.82,0,{solid:false});
- cube(group,'baseboard',12.6,.22,.16,0x241a1a,0,.12,-4.57,{solid:false});
- // windows / lighting accents
- if(kind===0){cube(group,'window frame',2.2,1.65,.14,0x17191f,-3.9,3.15,-4.55,{solid:false});cube(group,'moonlit window',1.95,1.4,.04,0x536174,-3.9,3.15,-4.45,{solid:false});}
- else if(kind===1){cube(group,'kitchen tile backsplash',5.2,1.25,.08,0x8b7863,0,2.8,-4.57,{solid:false});for(let x=-2.3;x<2.5;x+=.65)cube(group,'tile grout',.025,1.2,.025,0x4a4038,x,2.8,-4.5,{solid:false});}
- else{cube(group,'picture frame',1.8,1.3,.13,0x9a7045,0,3.15,-4.56,{solid:false});cube(group,'dark painting',1.55,1.05,.04,0x28303a,0,3.15,-4.46,{solid:false});}
- addFrame(group);
- // perimeter bounds are colliders for walking
- colliders.push({x:-6.5,z:-4.9,w:13,d:.5},{x:-6.5,z:4.75,w:13,d:.5},{x:-6.5,z:-4.9,w:.5,d:10},{x:6,z:-4.9,w:.5,d:10});
-}
-function furniture(kind){
- if(kind===0){ // bedroom: bed, bedside table, wardrobe, toy horse
-  cube(root,'bed frame',3.3,.58,2.15,0x694633,-2.5,.27,-1.45);cube(root,'mattress',3.05,.22,1.95,0xb9a99a,-2.5,.66,-1.45);cube(root,'pillow',.82,.2,.75,0xd9c9b7,-3.4,.82,-1.95,{solid:false});cube(root,'headboard',3.3,1.25,.2,0x4a3027,-2.5,1.03,-2.55);
-  cube(root,'nightstand',1.1,1.05,.9,0x5c3b2b,-4.55,.5,.35);cube(root,'wardrobe',1.65,3.1,1.25,0x392722,4.75,1.55,-3.25);cube(root,'wardrobe door',.72,2.75,.08,0x76513b,4.35,1.55,-2.6);cube(root,'rocking horse body',1.0,.55,.35,0x8b5737,2.2,.55,2.25);cube(root,'rocking horse head',.4,.65,.4,0x9a6640,2.7,.9,2.25);
-  colliders.push({x:-4.15,z:-2.52,w:3.5,d:2.35},{x:4,z:-3.9,w:2.1,d:1.7},{x:-5.1,z:-.1,w:1.4,d:1.2});
- }else if(kind===1){
-  cube(root,'counter',4.5,1.1,1.0,0x67442f,-3.45,.55,-3.25);cube(root,'counter top',4.65,.16,1.1,0xb99b72,-3.45,1.15,-3.25);cube(root,'fridge',1.45,3.55,1.35,0x9b9c9a,4.65,1.78,-3.2,{metal:.35});cube(root,'fridge door',1.32,3.35,.08,0xbfc3c2,4.65,1.8,-2.48,{metal:.25});cube(root,'island',2.4,1.05,1.4,0x76503a,0,.52,.2);cube(root,'island top',2.5,.13,1.48,0xc6a47b,0,1.1,.2);cube(root,'stove',1.1,.13,.9,0x292b2c,-4.2,1.27,-3.2,{metal:.4,solid:false});
-  // chair with visible back and legs, initially away from fridge
-  chair=new THREE.Group();chair.position.set(2.25,0,.15);root.add(chair);cube(chair,'chair seat',.9,.15,.85,0x8a5738,0,.85,0,{solid:false});cube(chair,'chair back',.9,1.0,.14,0x8a5738,0,1.35,-.35,{solid:false});for(let x of [-.34,.34])for(let z of [-.3,.3])cube(chair,'chair leg',.11,.82,.11,0x70452f,x,.41,z,{solid:false});colliders.push({x:1.8,z:-.25,w:1,d:1});
- }else{
-  cube(root,'sofa base',3.1,.7,1.25,0x59403b,-3.65,.38,-2.5);cube(root,'sofa back',3.1,1.45,.3,0x76514a,-3.65,1.0,-3.0);cube(root,'sofa cushion',2.8,.22,1.05,0x9a7166,-3.65,.78,-2.35);cube(root,'coffee table',2.2,.2,1.2,0x65412d,0,.85,-.65);for(let x of [-.85,.85])for(let z of [-.4,.4])cube(root,'table leg',.12,.8,.12,0x493024,x,.4+0.0,z-.65,{solid:false});cube(root,'side table',1.2,.8,1.0,0x69462e,3.65,.4,-2.6);cube(root,'front door',1.65,3.4,.24,0x68402c,5.3,1.7,4.2);cube(root,'door panel',1.25,2.8,.08,0x8a5a3a,5.3,1.7,4.05,{solid:false});colliders.push({x:-5.4,z:-3.2,w:3.5,d:1.8},{x:-1.2,z:-1.2,w:2.4,d:1.4},{x:3,z:-3.1,w:1.5,d:1.4},{x:4.4,z:4.0,w:2,d:.6});
- }
-}
-let chair=null;
-function normalizeModel(obj,targetHeight,maxFoot){obj.updateMatrixWorld(true);const b=new THREE.Box3().setFromObject(obj),size=b.getSize(new THREE.Vector3());let k=targetHeight/Math.max(size.y,.001);const foot=Math.max(size.x,size.z)*k;if(maxFoot&&foot>maxFoot)k*=maxFoot/foot;obj.scale.setScalar(k);obj.updateMatrixWorld(true);const b2=new THREE.Box3().setFromObject(obj);obj.position.y-=b2.min.y;obj.position.x-=(b2.min.x+b2.max.x)/2;obj.position.z-=(b2.min.z+b2.max.z)/2;obj.updateMatrixWorld(true);obj.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;if(n.material)n.material.side=THREE.DoubleSide;}});return obj;}
-function fitEnvironment(obj){obj.position.set(0,0,0);obj.scale.setScalar(1);obj.updateMatrixWorld(true);let b=new THREE.Box3().setFromObject(obj),z=b.getSize(new THREE.Vector3());const k=Math.min(12.4/Math.max(z.x,.001),9.4/Math.max(z.z,.001),4.6/Math.max(z.y,.001));obj.scale.setScalar(k);obj.updateMatrixWorld(true);b=new THREE.Box3().setFromObject(obj);obj.position.set(-(b.min.x+b.max.x)/2,-b.min.y,-(b.min.z+b.max.z)/2);obj.updateMatrixWorld(true);}
-async function load(path){return (await loader.loadAsync(path)).scene;}
-function keyMesh(color){let g=new THREE.Group(),m=new THREE.MeshStandardMaterial({color,metalness:.7,roughness:.2,emissive:color,emissiveIntensity:.22});let ring=new THREE.Mesh(new THREE.TorusGeometry(.2,.055,10,24),m);g.add(ring);let stem=new THREE.Mesh(new THREE.BoxGeometry(.09,.5,.09),m);stem.position.y=-.28;g.add(stem);let tooth=new THREE.Mesh(new THREE.BoxGeometry(.2,.08,.09),m);tooth.position.set(.11,-.46,0);g.add(tooth);g.position.y=.85;return g;}
-function register(label,pos,range,fn,enabled=()=>true){targets.push({label,pos:new THREE.Vector3(...pos),range,fn,enabled,done:false});}
-function clearStage(){if(levelGroup){scene.remove(levelGroup);levelGroup=null;}while(root.children.length)root.remove(root.children[0]);colliders=[];targets=[];chair=null;}
-function resetActors(){cow.position.set(-4.8,0,2.8);bunny.position.set(-5.6,0,3.2);bear.position.set(4.8,0,-3.8);cow.visible=bunny.visible=bear.visible=true;bearAlert=false;$('#danger').classList.add('hidden');}
-function setupStage(){clearStage();levelGroup=new THREE.Group();scene.add(levelGroup);root.add(levelGroup);addRoomShell(levelGroup,stage);furniture(stage);const roomPath=['bedroom','kitchen','living'][stage];let env=models[roomPath].clone(true);fitEnvironment(env);env.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});levelGroup.add(env);
- if(stage===0){let k=keyMesh(0xe8b65d);k.position.set(-2.6,.78,-.5);levelGroup.add(k);register('Revisar debajo de la cama',[-2.5,0,-1.3],2.2,()=>{bedInspected=true;k.visible=true;say('Algo brilla debajo de la cama… ¡acércate!');tone('tap');});register('Recoger llave dorada',[-2.5,0,-.5],1.7,()=>collect(0,k),()=>bedInspected&&!inventory[0]);}
- if(stage===1){let k=keyMesh(0x65a8e6);k.position.set(4.65,3.75,-2.5);levelGroup.add(k);register('Pedir ayuda al conejo con la silla',[2.25,0,.15],2.1,()=>{if(chairPlaced)return;chairPlaced=true;chair.position.set(3.8,0,-1.65);colliders=colliders.filter(c=>!(Math.abs(c.x-1.8)<.1&&Math.abs(c.z+.25)<.1));colliders.push({x:3.35,z:-2.1,w:1,d:1});bunny.position.set(3.1,0,-.8);say('El conejo colocó la silla junto al refrigerador. ¡Ahora sube por la llave!');tone('tap');});register('Subir a la silla y tomar la llave azul',[4.3,0,-2.0],2.1,()=>{if(!chairPlaced){say('Primero necesitas que el conejo acerque la silla.');return;}cow.position.set(4.0,0,-1.3);say('La vaca alcanza la parte superior del refrigerador…');tone('pickup');collect(1,k);},()=>chairPlaced&&!inventory[1]);}
- if(stage===2){let k=keyMesh(0x7fc68b);k.visible=false;k.position.set(3.65,1.35,-2.55);levelGroup.add(k);register('Revisar la taza sobre la mesita',[3.65,0,-2.55],2.0,()=>{cupOpened=true;k.visible=true;say('¡La llave verde estaba dentro de la taza!');tone('tap');});register('Recoger llave verde',[3.65,0,-2.2],1.8,()=>collect(2,k),()=>cupOpened&&!inventory[2]);register('Probar las llaves en la puerta',[5.0,0,3.3],2.5,finalDoor,()=>inventory.every(Boolean));}
- resetActors();$('#floorTag').textContent=levelNames[stage];$('#objective').textContent=['MISIÓN 01 · EXPLORA LA HABITACIÓN','MISIÓN 02 · CONSIGUE LA LLAVE AZUL','MISIÓN 03 · ENCUENTRA LA LLAVE VERDE'][stage];$('#hint').textContent=['Busca debajo de la cama. La llave dorada está oculta.','Pide al conejo que acerque la silla al refrigerador.','Busca la taza en la mesita. Después, ve a la puerta.'][stage];scene.background.set([0x30272c,0x302923,0x292329][stage]);scene.fog.color.copy(scene.background);}
-function updateInventory(){inventory.forEach((v,i)=>{let el=$(`#key${i}`);el.classList.toggle('found',v);el.querySelector('small').textContent=v?'ENCONTRADA':'PENDIENTE';});}
-function collect(i,obj){if(inventory[i])return;inventory[i]=true;obj.visible=false;updateInventory();tone('pickup');say(['LLAVE DORADA CONSEGUIDA','LLAVE AZUL CONSEGUIDA','LLAVE VERDE CONSEGUIDA'][i],2100);if(i===0)setTimeout(()=>{stage=1;setupStage();say('Has bajado a la cocina. No hagas ruido…');},1700);if(i===1)setTimeout(()=>{stage=2;setupStage();say('La sala está al final del pasillo.');},1700);if(i===2){$('#hint').textContent='Regresa a la puerta principal y prueba las llaves.';}}
-function finalDoor(){if(finalStep===0){finalStep++;tone('fail');say('La llave dorada no abre la puerta.');}else if(finalStep===1){finalStep++;tone('fail');say('La llave verde tampoco funciona.');}else if(finalStep===2){finalStep++;doorOpen=true;tone('unlock');say('¡La llave azul! ¡La puerta se está abriendo!');setTimeout(()=>{cow.position.set(5.3,0,5.8);bunny.position.set(4.6,0,5.8);bear.position.set(1.7,0,2.8);tone('success');won=true;show('victory');},2300);}}
-function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));if(id)$('#'+id).classList.remove('hidden');}
-function pauseGame(){if(!active||dead||won)return;paused=true;show('pause');}
-function restartGame(){inventory=[false,false,false];bedInspected=false;chairPlaced=false;cupOpened=false;finalStep=0;stage=0;dead=won=false;updateInventory();setupStage();show(null);active=true;paused=false;}
-function interact(){if(nearest){nearest.fn();return;}say('No hay nada con lo que puedas interactuar aquí.');}
-function blocked(x,z,r=.42){if(x<-5.75||x>5.75||z<-4.15||z>4.2)return true;return colliders.some(c=>x+r>c.x&&x-r<c.x+c.w&&z+r>c.z&&z-r<c.z+c.d);}
-function moveActor(actor,dx,dz,r){let nx=actor.position.x+dx;if(!blocked(nx,actor.position.z,r))actor.position.x=nx;let nz=actor.position.z+dz;if(!blocked(actor.position.x,nz,r))actor.position.z=nz;}
-function update(dt){if(toastTimer>0){toastTimer-=dt*1000;if(toastTimer<=0)$('#toast').classList.remove('show');}if(!active||paused||dead||won)return;elapsed+=dt;
- let dx=(held.ArrowRight?1:0)-(held.ArrowLeft?1:0),dz=(held.ArrowDown?1:0)-(held.ArrowUp?1:0);let len=Math.hypot(dx,dz)||1;dx=dx/len*playerSpeed*dt;dz=dz/len*playerSpeed*dt;if(dx||dz){moveActor(cow,dx,dz,.42);cow.rotation.y=Math.atan2(dx,dz);footTimer-=dt;if(footTimer<=0){tone('step');footTimer=.38;} }
- // Bunny follows in short, collision-aware steps.
- let bx=cow.position.x-0.8-bunny.position.x,bz=cow.position.z+.35-bunny.position.z,bl=Math.hypot(bx,bz);if(bl>.8){moveActor(bunny,bx/bl*Math.min(2.8*dt,bl),bz/bl*Math.min(2.8*dt,bl),.3);bunny.rotation.y=Math.atan2(bx,bz);}
- // Bear waits briefly, then hunts. It chooses a clear axis first to avoid pushing through props.
- if(elapsed>8){bearAlert=true;$('#danger').classList.remove('hidden');let vx=cow.position.x-bear.position.x,vz=cow.position.z-bear.position.z,dist=Math.hypot(vx,vz);if(dist>1.1){let speed=dist<4?2.4:1.75;let sx=vx/dist*speed*dt,sz=vz/dist*speed*dt;let oldX=bear.position.x,oldZ=bear.position.z;moveActor(bear,sx,sz,.48);if(oldX===bear.position.x&&oldZ===bear.position.z){moveActor(bear,sz,sx,.48);}}else{dead=true;active=false;tone('danger');show('gameover');}}
- nearest=null;let min=Infinity;for(const t of targets){if(t.done||!t.enabled())continue;let d=cow.position.distanceTo(t.pos);if(d<t.range&&d<min){min=d;nearest=t;}}$('#interactionPrompt').classList.toggle('hidden',!nearest);if(nearest)$('#interactionPrompt').innerHTML=`${nearest.label.toUpperCase()} · PRESIONA <kbd>E</kbd>`;
- // Character breathing / idle movement
- [cow,bunny,bear].forEach((a,i)=>{const m=i===0?models.cow: i===1?models.bunny:models.bear;if(m)m.rotation.z=Math.sin(elapsed*2.2+i)*.018;});
-}
-function animate(){requestAnimationFrame(animate);let dt=Math.min(clock.getDelta(),.04);update(dt);renderer.render(scene,camera);}
-function onKeyDown(e){if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();if(e.key==='Escape'){if(!$('#menu').classList.contains('hidden')||!$('#instructions').classList.contains('hidden'))return;if(paused){paused=false;show(null);}else pauseGame();}if(e.key.toLowerCase()==='e'&&active&&!paused)interact();held[e.key]=true;}
-addEventListener('keydown',onKeyDown);addEventListener('keyup',e=>held[e.key]=false);
-$('#play').onclick=async()=>{initAudio();await audio.resume();startAmbience();show(null);$('#hud').classList.remove('hidden');active=true;paused=false;say('PISO 3 · ENCUENTRA LA LLAVE DORADA');};$('#instructionsBtn').onclick=()=>show('instructions');$('#backMenu').onclick=()=>show('menu');$('#resume').onclick=()=>{paused=false;show(null);};$('#restart').onclick=restartGame;$('#toMenu').onclick=()=>{active=false;paused=false;show('menu');$('#hud').classList.add('hidden');};$('#retry').onclick=()=>{dead=false;active=true;paused=false;elapsed=0;resetActors();show(null);};$('#overMenu').onclick=()=>{dead=false;active=false;$('#hud').classList.add('hidden');show('menu');};$('#again').onclick=restartGame;
-addEventListener('resize',()=>{fitCamera();renderer.setSize(innerWidth,innerHeight);});
-async function init(){try{const [cowM,bunnyM,bearM,bed,kitchen,living]=await Promise.all([load(paths.cow),load(paths.bunny),load(paths.bear),load(paths.bedroom),load(paths.kitchen),load(paths.living)]);models={cow:normalizeModel(cowM,1.9,1.4),bunny:normalizeModel(bunnyM,1.45,1.0),bear:normalizeModel(bearM,2.15,1.7),bedroom:bed,kitchen,living};cow.add(models.cow);bunny.add(models.bunny);bear.add(models.bear);setupStage();animate();}catch(err){console.error(err);$('#objective').textContent='ERROR AL CARGAR LOS MODELOS';$('#hint').textContent='Comprueba que la carpeta models esté junto a index.html y abre mediante GitHub Pages o Live Server.';animate();}}
-init();
+const host=document.querySelector('#stage');
+const scene=new THREE.Scene(); scene.background=new THREE.Color('#21191a');
+const camera=new THREE.PerspectiveCamera(37,innerWidth/innerHeight,.1,180);
+camera.position.set(0,31,39); camera.lookAt(0,1,0);
+const renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(innerWidth,innerHeight); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap; renderer.outputColorSpace=THREE.SRGBColorSpace; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.25; host.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffe4c2,0x342323,2.0));
+const keyLight=new THREE.DirectionalLight(0xffd19a,3.1); keyLight.position.set(-12,28,18); keyLight.castShadow=true; keyLight.shadow.mapSize.set(2048,2048); scene.add(keyLight);
+const fill=new THREE.PointLight(0xff9b46,100,60); fill.position.set(0,13,0); scene.add(fill);
+const loader=new GLTFLoader(); const clock=new THREE.Clock();
+const mat=(color,rough=.82,metal=0)=>new THREE.MeshStandardMaterial({color,roughness:rough,metalness:metal});
+const mats={wood:mat('#53311f'),wood2:mat('#805033'),wall:mat('#d5a75e'),wall2:mat('#2a160d'),tile:mat('#a88b73'),dark:mat('#171311'),gold:mat('#e8a83d',.3,.6),white:mat('#e9dfd3'),brown:mat('#50372b'),blue:mat('#253044'),green:mat('#273a30'),fabric:mat('#b8a18d')};
+const world=new THREE.Group(); scene.add(world);
+function box(parent,name,x,y,z,w,h,d,material,opts={}){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);m.name=name;m.position.set(x,y,z);m.castShadow=opts.cast!==false;m.receiveShadow=true;parent.add(m);return m;}
+function cylinder(parent,name,x,y,z,r1,r2,h,material){const m=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,h,24),material);m.name=name;m.position.set(x,y,z);m.castShadow=true;parent.add(m);return m;}
+function texturingFloor(parent,x,z,w,d,material,grid=0){box(parent,'floor',x,.02,z,w,.16,d,material);if(grid){for(let xx=x-w/2;xx<=x+w/2+.01;xx+=grid)box(parent,'floor-seam',xx,.105,z,.025,.012,d,mat('#765c49'));for(let zz=z-d/2;zz<=z+d/2+.01;zz+=grid)box(parent,'floor-seam',x,.105,zz,w,.012,.025,mat('#765c49'));}}
+function roomShell(parent,id,cx,cz,w,d,wallMat,floorMat,frontHeight=2.4){const g=new THREE.Group();g.position.set(cx,0,cz);g.userData={id,cx,cz,w,d};parent.add(g);texturingFloor(g,0,0,w,d,floorMat,id==='kitchen'?1.5:0);
+// side/back walls and low front wall keep all furniture visible in the isometric overview
+box(g,'back-wall',0,2.9,-d/2,w,5.8,.32,wallMat);box(g,'left-wall',-w/2,2.3,0,.32,4.6,d,wallMat);box(g,'right-wall',w/2,2.3,0,.32,4.6,d,wallMat);box(g,'front-wall-left',-w*.34,frontHeight/2,d/2,w*.32,frontHeight,.32,wallMat);box(g,'front-wall-right',w*.34,frontHeight/2,d/2,w*.32,frontHeight,.32,wallMat);
+// bronze structural frame
+const trim=mat('#a95e25',.38,.55);box(g,'top-back-trim',0,5.85,-d/2,w+.3,.22,.5,trim);box(g,'left-trim',-w/2,2.35,0,.45,4.8,d+.4,trim);box(g,'right-trim',w/2,2.35,0,.45,4.8,d+.4,trim);box(g,'front-trim',0,frontHeight+.15,d/2,w+.45,.35,.55,trim);
+// top warm light accents
+for(let i=-1;i<=1;i++)box(g,'warm-light',i*w*.27,5.98,-d/2,.9,.12,.18,mats.gold);
+return g;}
+const bedRoom=roomShell(world,'bed',-8,-7,14,10,mat('#c18a3e'),mat('#4a2e21'),2.1);
+const kitchen=roomShell(world,'kitchen',8,-7,14,10,mat('#d7c5a8'),mat('#806b59'),2.1);
+const living=roomShell(world,'living',0,7,19,11,mat('#302017'),mat('#57504d'),2.2);
+// bedroom: same main pieces and arrangement as supplied Blender scene
+box(bedRoom,'bed-base',-3,.72,1.1,5.6,1.05,3.3,mats.wood2);box(bedRoom,'mattress',-3,1.35,1.1,5.5,.38,3.25,mats.white);box(bedRoom,'pillow',-4.8,1.62,1.1,1.3,.25,1.05,mat('#f5e8dc'));box(bedRoom,'headboard',-3,1.8,-.65,5.8,1.9,.25,mats.brown);box(bedRoom,'bedside',.8,.75,-1.4,1.2,1.4,1.2,mats.brown);cylinder(bedRoom,'lamp-base',.8,1.55,-1.4,.25,.25,.12,mats.gold);cylinder(bedRoom,'lamp-shade',.8,2.05,-1.4,.42,.2,.8,mat('#f4d5a1'));box(bedRoom,'dresser',5,.9,-2.8,1.6,1.8,1.2,mats.brown);box(bedRoom,'shelf',-4,2.3,-4.65,2.1,2.7,.3,mat('#382b25'));for(let y=1.5;y<3.5;y+=.55)box(bedRoom,'shelf-board',-4,y,-4.42,1.9,.09,.4,mat('#655044'));
+// kitchen: tiled walls, counter, table, two chairs, fridge
+box(kitchen,'counter-back',0,1.15,-3.85,8.6,1.8,.8,mats.wood2);box(kitchen,'counter-top',0,2.1,-3.8,8.9,.18,1.05,mat('#b58a5e'));for(let x=-3;x<=3;x+=1.5){box(kitchen,'cabinet-door',x,1.05,-3.35,1.35,1.3,.12,mat('#c9b69e'));cylinder(kitchen,'cabinet-knob',x+.4,1.1,-3.25,.06,.06,.08,mats.gold)}box(kitchen,'fridge',5,1.7,-2.1,1.8,3.2,1.7,mat('#aeb9ba',.35,.18));box(kitchen,'fridge-handle',4.3,1.8,-1.2,.08,1.2,.08,mat('#667174',.3,.5));box(kitchen,'table-top',0,1.45,.7,4.7,.25,2.1,mats.wood2);for(const x of [-1.9,1.9])for(const z of [-.05,1.45])box(kitchen,'table-leg',x,.7,z,.18,1.35,.18,mats.brown);for(const x of [-3.2,3.2]){box(kitchen,'chair-seat',x,1,.8,1.5,.25,1.4,mats.fabric);box(kitchen,'chair-back',x,1.8,1.45,1.5,1.5,.2,mat('#9da5a5'));for(const dx of [-.55,.55])for(const dz of [.3,1.3])box(kitchen,'chair-leg',x+dx,.48,dz,.12,1,.12,mat('#a4afb0'));}cylinder(kitchen,'plate',-.7,1.61,.65,.42,.42,.05,mats.white);cylinder(kitchen,'plate',.8,1.61,.65,.42,.42,.05,mats.white);
+// living room: wallpaper, cabinet, television, door, green chair and side table
+box(living,'wardrobe',-6,1.55,-4.2,3,3.1,1.6,mats.brown);box(living,'wardrobe-blue-door',-6,1.7,-3.35,1.25,2.1,.1,mats.blue);box(living,'wardrobe-blue-door',-4.7,1.7,-3.35,1.25,2.1,.1,mats.blue);box(living,'door-frame',0,2.1,-4.75,2.8,4.2,.35,mat('#80604a'));box(living,'door',0,2,-4.52,2.35,3.8,.2,mat('#634632'));box(living,'door-panel',0,2,-4.38,1.6,2.8,.08,mat('#77563d'));box(living,'tv-body',-4.3,1.1,1.2,3.1,2.2,1.1,mat('#171c1c'));box(living,'tv-screen',-4.3,1.1,.62,2.7,1.75,.08,mat('#0d2226',.18,.25));for(const x of [-5,-3.6]){const ant=new THREE.Mesh(new THREE.CylinderGeometry(.025,.025,1.6,8),mat('#a8b0a7'));ant.position.set(x,2.65,.95);ant.rotation.z=.35;living.add(ant)}
+// distinctive green angular chair silhouette
+box(living,'chair-seat',3,1.2,.7,2.5,.45,2,mats.green);box(living,'chair-back',3,2.3,-.1,2.4,2.2,.45,mats.green).rotation.x=-.16;box(living,'chair-arm',1.85,1.7,.8,.4,1.4,2,mats.green);box(living,'chair-arm',4.15,1.7,.8,.4,1.4,2,mats.green);cylinder(living,'side-table-pedestal',6.2,.8,1.6,.12,.12,1.5,mats.brown);cylinder(living,'side-table-top',6.2,1.6,1.6,.9,.9,.16,mat('#c7b6a4'));cylinder(living,'cup',6.2,1.82,1.6,.22,.28,.34,mats.white);
+// door openings are indicated with bright thresholds
+for(const room of [bedRoom,kitchen,living]){box(room,'threshold',0,.14,room.userData.d/2-.05,2.1,.16,.55,mats.gold)}
+
+// subtle background floor and brass perimeter
+box(scene,'underlay',0,-.65,0,60,.5,42,mat('#171211'));
+const rail=mat('#56311e',.42,.6);for(const [x,z,w,d] of [[-8,-7,14,10],[8,-7,14,10],[0,7,19,11]]){box(world,'outer-foundation',x,-.18,z,w+.8,.35,d+.8,rail)}
+
+const actors={cow:null,bunny:null,bear:null};
+async function loadActor(file,height){const gltf=await loader.loadAsync(`models/${file}`);const obj=gltf.scene;obj.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;if(n.material){n.material.side=THREE.DoubleSide;}}});const b=new THREE.Box3().setFromObject(obj);const size=b.getSize(new THREE.Vector3());const scale=height/Math.max(size.y,.01);obj.scale.setScalar(scale);obj.updateMatrixWorld(true);const bb=new THREE.Box3().setFromObject(obj);obj.position.y-=bb.min.y;return obj;}
+const spawn={bed:new THREE.Vector3(-10,0,-7),kitchen:new THREE.Vector3(5,0,-7),living:new THREE.Vector3(-3,0,7)};
+let active='bed',playing=false,paused=false,cutscene=false,keys={gold:false,blue:false,green:false},lastSafe='bed',elapsed=0,toastTimer=0,nearText='';
+const player=new THREE.Group();scene.add(player);const buddy=new THREE.Group();scene.add(buddy);const bear=new THREE.Group();scene.add(bear);
+const roomMap={bed:bedRoom,kitchen,living};const roomMeta={bed:{name:'PISO 3 · HABITACIÓN',objective:'Busca la llave dorada debajo de la cama'},kitchen:{name:'PISO 2 · COCINA',objective:'El conejo moverá la silla para alcanzar la llave azul'},living:{name:'PISO 1 · SALA',objective:'Busca la llave verde dentro de la taza'}};
+function roomBounds(id){const r=roomMap[id].userData;return {minX:r.cx-r.w/2+1,maxX:r.cx+r.w/2-1,minZ:r.cz-r.d/2+1,maxZ:r.cz+r.d/2-1}}
+function moveActor(obj,pos){obj.position.copy(pos)}
+function setRoom(id){active=id;const p=spawn[id].clone();player.position.set(p.x,0,p.z);buddy.position.set(p.x-1.6,0,p.z+.8);if(actors.bear){const r=roomBounds(id);bear.position.set(r.maxX-1,0,r.minZ+1);}document.querySelector('#room-name').textContent=roomMeta[id].name;document.querySelector('#objective').textContent=roomMeta[id].objective;document.querySelectorAll('.floor-btn').forEach(b=>b.classList.toggle('active',b.dataset.room===id));lastSafe=id;}
+function showToast(t){const el=document.querySelector('#toast');el.textContent=t;el.style.opacity=1;clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.opacity=0,2200)}
+function updateKeys(){for(const k of ['gold','blue','green']){const el=document.querySelector(`[data-key="${k}"] small`);el.textContent=keys[k]?'CONSEGUIDA':'PENDIENTE';el.style.color=keys[k]?'#f6c56c':''}}
+function pause(show){paused=show;document.querySelector('#pause').classList.toggle('hidden',!show)}
+function showScreen(id){document.querySelectorAll('.overlay').forEach(e=>e.classList.add('hidden'));if(id)document.querySelector('#'+id).classList.remove('hidden')}
+function reset(){keys={gold:false,blue:false,green:false};updateKeys();elapsed=0;cutscene=false;setRoom('bed');bear.position.set(-3.4,0,-11);playing=true;paused=false;showScreen(null);showToast('Encuentra las tres llaves y evita al oso.');}
+function changeRoom(id){if(id==='kitchen'&&!keys.gold){showToast('Primero necesitas la llave dorada para abrir el acceso a la cocina.');return}if(id==='living'&&!keys.blue){showToast('La puerta de la sala sigue cerrada. Busca la llave azul.');return}setRoom(id);showToast(`Entraste a ${id==='bed'?'la habitación':id==='kitchen'?'la cocina':'la sala'}.`)}
+function getDistance(a,b){return Math.hypot(a.x-b.x,a.z-b.z)}
+function interact(){if(!playing||paused||cutscene)return;const p=player.position;
+ if(active==='bed'&&!keys.gold&&getDistance(p,new THREE.Vector3(-3,0,1.1))<4.1){keys.gold=true;updateKeys();showToast('¡Encontraste la llave dorada debajo de la cama!');return}
+ if(active==='kitchen'&&!keys.blue&&getDistance(p,new THREE.Vector3(5,0,-2.1))<4.2){keys.blue=true;updateKeys();showToast('El conejo movió la silla. ¡Conseguiste la llave azul del refrigerador!');buddy.position.set(4,0,-.2);return}
+ if(active==='living'&&!keys.green&&getDistance(p,new THREE.Vector3(6.2,0,1.6))<3.4){keys.green=true;updateKeys();showToast('¡La llave verde estaba dentro de la taza!');return}
+ if(active==='living'&&keys.gold&&keys.blue&&keys.green&&getDistance(p,new THREE.Vector3(0,0,-4.5))<3.5){startEnding();return}
+ if(active==='bed'&&keys.gold){changeRoom('kitchen');return}if(active==='kitchen'&&keys.blue){changeRoom('living');return}showToast('Acércate al objeto y presiona E para interactuar.');}
+function startEnding(){cutscene=true;showToast('La vaca prueba las llaves: dorada… no funciona. Verde… tampoco.');setTimeout(()=>showToast('¡La llave azul abre la puerta!'),1800);setTimeout(()=>{showScreen('ending');playing=false;},3900)}
+function setActionHint(){let t=roomMeta[active].objective;if(active==='bed'&&keys.gold)t='Llave dorada conseguida. Ve a la cocina.';if(active==='kitchen'&&keys.blue)t='Llave azul conseguida. Continúa hacia la sala.';if(active==='living'&&keys.gold&&keys.blue&&keys.green)t='Prueba las llaves en la puerta central.';document.querySelector('#objective').textContent=t}
+let cowReady=false;
+Promise.all([loadActor('Vaca_Protagonista.glb',2.05),loadActor('Conejo_Complice.glb',1.65),loadActor('Oso.glb',2.35)]).then(([c,b,o])=>{actors.cow=c;actors.bunny=b;actors.bear=o;player.add(c);buddy.add(b);bear.add(o);setRoom('bed');cowReady=true;document.querySelector('#play').disabled=false;document.querySelector('#play').textContent='COMENZAR';}).catch(err=>{console.error(err);document.querySelector('#loading')?.remove();showToast('No se pudieron cargar los modelos GLB. Revisa la carpeta models.');});
+// movement, soft obstacle blocking around furniture and room walls
+const obstacles={bed:[[-3,1.1,2.7,1.7],[5,-2.8,1.2,1.2],[-4,-4.5,2.2,.5]],kitchen:[[0,-3.7,8.7,1.1],[5,-2.1,1.8,1.8],[0,.7,4.8,2.2],[-3.2,.8,1.5,1.5],[3.2,.8,1.5,1.5]],living:[[-6,-4.2,3,1.7],[0,-4.6,2.8,.6],[-4.3,1.2,3.1,1.1],[3,.7,2.5,2.2],[6.2,1.6,1.8,1.8]]};
+function blocked(id,x,z){const r=roomBounds(id);if(x<r.minX||x>r.maxX||z<r.minZ||z>r.maxZ)return true;for(const [ox,oz,w,d] of obstacles[id])if(Math.abs(x-ox)<w/2+.45&&Math.abs(z-oz)<d/2+.45)return true;return false;}
+const down={};addEventListener('keydown',e=>{const k=e.key.toLowerCase();down[k]=true;if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();if(k==='escape'&&playing)pause(!paused);if(k==='e')interact();if(k==='1')changeRoom('bed');if(k==='2')changeRoom('kitchen');if(k==='3')changeRoom('living');});addEventListener('keyup',e=>down[e.key.toLowerCase()]=false);
+document.querySelectorAll('.floor-btn').forEach(b=>b.addEventListener('click',()=>changeRoom(b.dataset.room)));
+document.querySelector('#play').addEventListener('click',()=>{if(!cowReady){showToast('Espera a que terminen de cargar los personajes.');return}reset()});document.querySelector('#show-instructions').onclick=()=>showScreen('instructions');document.querySelector('#instructions-back').onclick=()=>showScreen('start');document.querySelector('#resume').onclick=()=>pause(false);document.querySelector('#restart').onclick=()=>{setRoom(active);pause(false)};document.querySelector('#retry').onclick=()=>{setRoom(lastSafe);showScreen(null);playing=true};document.querySelector('#again').onclick=()=>{reset()};
+
+function animate(){requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.04);if(playing&&!paused&&!cutscene&&cowReady){elapsed+=dt;const speed=5.1;let dx=0,dz=0;if(down.arrowleft||down.a)dx-=1;if(down.arrowright||down.d)dx+=1;if(down.arrowup||down.w)dz-=1;if(down.arrowdown||down.s)dz+=1;const len=Math.hypot(dx,dz)||1;dx=dx/len*speed*dt;dz=dz/len*speed*dt;const nx=player.position.x+dx,nz=player.position.z+dz;if(!blocked(active,nx,player.position.z))player.position.x=nx;if(!blocked(active,player.position.x,nz))player.position.z=nz;if(dx||dz){const yaw=Math.atan2(dx,dz);actors.cow.rotation.y=yaw;}
+ const follow=new THREE.Vector3(player.position.x-1.1,0,player.position.z+1.15);buddy.position.lerp(follow,Math.min(1,dt*3));if(Math.abs(dx)+Math.abs(dz)>.001)actors.bunny.rotation.y=Math.atan2(dx,dz);
+ // Bear begins searching after a short delay and chases the active room.
+ if(elapsed>8){document.querySelector('#threat').style.display='block';const target=player.position.clone();const dir=target.sub(bear.position);const dist=dir.length();if(dist>.01){dir.normalize();const step=dir.multiplyScalar(1.55*dt);const bx=bear.position.x+step.x,bz=bear.position.z+step.z;if(!blocked(active,bx,bz)){bear.position.x=bx;bear.position.z=bz;}actors.bear.rotation.y=Math.atan2(step.x,step.z);}if(dist<1.35){playing=false;showScreen('caught')}}
+ setActionHint();}
+ renderer.render(scene,camera);}
+animate();
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
