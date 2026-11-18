@@ -1,1 +1,1 @@
-Coloca aquí tus archivos de audio (por ejemplo: ambiente.mp3, pasos_oso.mp3, llave.wav, puerta.wav). Los sonidos sintetizados actuales funcionan sin archivos externos.
+Carpeta de audio del videojuego. La versión actual genera ambiente y efectos con Web Audio API; no requiere archivos externos. Puedes colocar aquí futuras pistas propias y referenciarlas con rutas relativas en script.js.
